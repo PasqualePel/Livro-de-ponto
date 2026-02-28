@@ -4,6 +4,7 @@ import pandas as pd
 from io import BytesIO
 import calendar
 import requests
+import json
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -17,9 +18,11 @@ st.set_page_config(
     layout="wide"
 )
 
+# ── Configuração ─────────────────────────────────────────────────
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzK268XUzyLr4TJlksHJf1k8GEPyOG7DrwItH8iw_dSdb6ysVShyEQlsau2lth27kKY/exec"
 SHEET_ID = "1KhoFXD3oB91U-gh1zy1-YCK4Kug4XfdlpwttXPU6KAY"
 
+# ── Feriados Moçambique ──────────────────────────────────────────
 feriados = {
     "01-01": "Ano Novo",
     "03-02": "Dia dos Heróis Moçambicanos",
@@ -40,6 +43,7 @@ meses = {
 
 dias_semana_pt = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
 
+# ── Legge i dati dal foglio Google ──────────────────────────────
 @st.cache_data(ttl=30)
 def carregar_dados():
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
@@ -47,12 +51,15 @@ def carregar_dados():
         df = pd.read_csv(url)
         return df
     except:
-        return pd.DataFrame(columns=["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Notas","Mês","Ano"])
+        return pd.DataFrame(columns=[
+            "Data","Dia da Semana","Entrada",
+            "Saída","Horas Trabalhadas","Notas","Mês","Ano"
+        ])
 
+# ── Salva i dati tramite Google Apps Script ──────────────────────
 def guardar_registo(reg):
     try:
         headers = {"Content-Type": "application/json"}
-        import json
         requests.post(
             SCRIPT_URL,
             data=json.dumps(reg),
@@ -65,6 +72,7 @@ def guardar_registo(reg):
         st.error(f"Erro ao guardar: {e}")
         return False
 
+# ── Calcola le ore lavorate ──────────────────────────────────────
 def calc_horas(ent, sai):
     try:
         e = datetime.strptime(ent.strip(), "%H:%M")
@@ -76,7 +84,7 @@ def calc_horas(ent, sai):
     except:
         return "Formato inválido (use HH:MM)", False
 
-# ── GERA PDF ─────────────────────────────────────────────────────
+# ── Genera PDF del mese ──────────────────────────────────────────
 def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -91,7 +99,6 @@ def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
     styles = getSampleStyleSheet()
     elementos = []
 
-    # ── Stile titolo ──
     estilo_titulo = ParagraphStyle(
         'titulo',
         parent=styles['Normal'],
@@ -124,15 +131,26 @@ def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
         alignment=TA_LEFT,
         spaceAfter=2
     )
+    estilo_firma = ParagraphStyle(
+        'firma',
+        parent=styles['Normal'],
+        fontSize=10,
+        fontName='Helvetica',
+        alignment=TA_CENTER,
+        spaceAfter=2
+    )
 
-    # ── Intestazione ──
+    # ── Intestazione PDF ──
     elementos.append(Paragraph("Paróquia SS. Trindade", estilo_titulo))
-    elementos.append(Paragraph("Livro de Ponto — Yolanda", estilo_subtitulo))
+    elementos.append(Paragraph("Livro de Ponto — Yolanda Facitela Clávio", estilo_subtitulo))
+    elementos.append(Spacer(1, 0.2*cm))
     elementos.append(Paragraph(f"Mês: {mes_nome} {ano}", estilo_info))
-    elementos.append(Paragraph(f"Total de Horas Trabalhadas: {total_h}h {total_m:02d}m", estilo_info))
-    elementos.append(Spacer(1, 0.5*cm))
+    elementos.append(Paragraph(
+        f"Total de Horas Trabalhadas: {total_h}h {total_m:02d}m", estilo_info
+    ))
+    elementos.append(Spacer(1, 0.4*cm))
 
-    # ── Linea separatrice ──
+    # Linea separatrice
     elementos.append(Table(
         [['']],
         colWidths=[17*cm],
@@ -141,7 +159,9 @@ def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
     elementos.append(Spacer(1, 0.4*cm))
 
     # ── Tabella dati ──
-    intestazione = ["Data", "Dia da Semana", "Entrada", "Saída", "Horas", "Notas"]
+    intestazione = [
+        "Data", "Dia da Semana", "Entrada", "Saída", "Horas", "Notas"
+    ]
     dati = [intestazione]
 
     for _, row in do_mes.iterrows():
@@ -160,36 +180,24 @@ def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
         repeatRows=1
     )
     tabela.setStyle(TableStyle([
-        # Intestazione
-        ('BACKGROUND',   (0,0), (-1,0),  colors.HexColor("#2c3e50")),
-        ('TEXTCOLOR',    (0,0), (-1,0),  colors.white),
-        ('FONTNAME',     (0,0), (-1,0),  'Helvetica-Bold'),
-        ('FONTSIZE',     (0,0), (-1,0),  9),
-        ('ALIGN',        (0,0), (-1,0),  'CENTER'),
-        # Dati
-        ('FONTNAME',     (0,1), (-1,-1), 'Helvetica'),
-        ('FONTSIZE',     (0,1), (-1,-1), 9),
-        ('ALIGN',        (0,1), (-1,-1), 'CENTER'),
+        ('BACKGROUND',     (0,0), (-1,0),  colors.HexColor("#2c3e50")),
+        ('TEXTCOLOR',      (0,0), (-1,0),  colors.white),
+        ('FONTNAME',       (0,0), (-1,0),  'Helvetica-Bold'),
+        ('FONTSIZE',       (0,0), (-1,0),  9),
+        ('ALIGN',          (0,0), (-1,0),  'CENTER'),
+        ('FONTNAME',       (0,1), (-1,-1), 'Helvetica'),
+        ('FONTSIZE',       (0,1), (-1,-1), 9),
+        ('ALIGN',          (0,1), (-1,-1), 'CENTER'),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor("#f2f2f2")]),
-        # Bordi
-        ('GRID',         (0,0), (-1,-1), 0.5, colors.grey),
-        ('BOTTOMPADDING',(0,0), (-1,-1), 5),
-        ('TOPPADDING',   (0,0), (-1,-1), 5),
+        ('GRID',           (0,0), (-1,-1), 0.5, colors.grey),
+        ('BOTTOMPADDING',  (0,0), (-1,-1), 5),
+        ('TOPPADDING',     (0,0), (-1,-1), 5),
     ]))
 
     elementos.append(tabela)
     elementos.append(Spacer(1, 1.5*cm))
 
-    # ── Spazio per le firme ──
-    estilo_firma = ParagraphStyle(
-        'firma',
-        parent=styles['Normal'],
-        fontSize=10,
-        fontName='Helvetica',
-        alignment=TA_CENTER,
-        spaceAfter=2
-    )
-
+    # ── Spazio firme ──
     dados_assinatura = [
         [
             Paragraph("_______________________________", estilo_firma),
@@ -210,9 +218,9 @@ def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
         colWidths=[8.5*cm, 8.5*cm]
     )
     tabela_assinatura.setStyle(TableStyle([
-        ('ALIGN',    (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN',   (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('ALIGN',        (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN',       (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING',   (0,0), (-1,-1), 6),
     ]))
 
     elementos.append(Paragraph("Assinaturas:", estilo_normal))
@@ -245,14 +253,14 @@ if not df_side.empty and "Mês" in df_side.columns:
         (df_side["Ano"].astype(str) == str(ano))
     ]
     if not do_mes_side.empty:
-        tot = 0
+        tot_s = 0
         for h in do_mes_side["Horas Trabalhadas"]:
             h = str(h)
             if "h" in h:
                 p = h.replace("m","").split("h")
-                try: tot += int(p[0])*60 + int(p[1].strip())
+                try: tot_s += int(p[0])*60 + int(p[1].strip())
                 except: pass
-        st.sidebar.success(f"⏱️ **Total:** {tot//60}h {tot%60:02d}m")
+        st.sidebar.success(f"⏱️ **Total:** {tot_s//60}h {tot_s%60:02d}m")
         st.sidebar.info(f"📅 **Dias:** {len(do_mes_side)}")
     else:
         st.sidebar.info("Nenhum registo este mês")
@@ -291,22 +299,29 @@ with col1:
         st.warning(f"🎉 Feriado: {fer}")
 
 with col2:
-    entrada = st.text_input("⏰ Hora de Entrada", placeholder="08:00",
-                            key=f"ent_{mes}_{dia}")
+    entrada = st.text_input(
+        "⏰ Hora de Entrada",
+        placeholder="08:00",
+        key=f"ent_{mes}_{dia}"
+    )
 
 with col3:
-    saida = st.text_input("⏰ Hora de Saída", placeholder="16:30",
-                          key=f"sai_{mes}_{dia}")
+    saida = st.text_input(
+        "⏰ Hora de Saída",
+        placeholder="16:30",
+        key=f"sai_{mes}_{dia}"
+    )
 
-notas = st.text_input("📝 Notas",
-                      value=f"Feriado: {fer}" if fer else "",
-                      key=f"not_{mes}_{dia}")
+notas = st.text_input(
+    "📝 Notas",
+    value=f"Feriado: {fer}" if fer else "",
+    key=f"not_{mes}_{dia}"
+)
 
 if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
     if entrada and saida:
         horas, ok = calc_horas(entrada, saida)
         if ok:
-            import json
             reg = {
                 "Data": data_obj.strftime("%d/%m/%Y"),
                 "DiaSemana": dsem,
@@ -319,10 +334,3 @@ if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
             }
             with st.spinner("A guardar no Google Sheets..."):
                 if guardar_registo(reg):
-                    st.success(f"✅ Guardado! {data_obj.strftime('%d/%m/%Y')} — {horas}")
-                    st.balloons()
-                    st.cache_data.clear()
-        else:
-            st.error(horas)
-    else:
-        st.warning("
