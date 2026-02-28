@@ -4,6 +4,12 @@ import pandas as pd
 from io import BytesIO
 import calendar
 import requests
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 st.set_page_config(
     page_title="Livro de Ponto - Paróquia SS. Trindade",
@@ -11,11 +17,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── Link dello script Google ─────────────────────────────────────
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzK268XUzyLr4TJlksHJf1k8GEPyOG7DrwItH8iw_dSdb6ysVShyEQlsau2lth27kKY/exec"
 SHEET_ID = "1KhoFXD3oB91U-gh1zy1-YCK4Kug4XfdlpwttXPU6KAY"
 
-# ── Feriados Moçambique ──────────────────────────────────────────
 feriados = {
     "01-01": "Ano Novo",
     "03-02": "Dia dos Heróis Moçambicanos",
@@ -36,7 +40,6 @@ meses = {
 
 dias_semana_pt = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
 
-# ── Legge i dati dal foglio Google ──────────────────────────────
 @st.cache_data(ttl=30)
 def carregar_dados():
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
@@ -46,13 +49,13 @@ def carregar_dados():
     except:
         return pd.DataFrame(columns=["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Notas","Mês","Ano"])
 
-# ── Salva i dati tramite Google Apps Script ──────────────────────
 def guardar_registo(reg):
     try:
         headers = {"Content-Type": "application/json"}
-        resp = requests.post(
+        import json
+        requests.post(
             SCRIPT_URL,
-            data=str(reg).replace("'", '"'),
+            data=json.dumps(reg),
             headers=headers,
             timeout=15,
             allow_redirects=True
@@ -62,7 +65,6 @@ def guardar_registo(reg):
         st.error(f"Erro ao guardar: {e}")
         return False
 
-# ── Calcola le ore lavorate ──────────────────────────────────────
 def calc_horas(ent, sai):
     try:
         e = datetime.strptime(ent.strip(), "%H:%M")
@@ -74,7 +76,156 @@ def calc_horas(ent, sai):
     except:
         return "Formato inválido (use HH:MM)", False
 
-# ── SIDEBAR ──────────────────────────────────────────────────────
+# ── GERA PDF ─────────────────────────────────────────────────────
+def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=2*cm,
+        leftMargin=2*cm,
+        topMargin=2*cm,
+        bottomMargin=2*cm
+    )
+
+    styles = getSampleStyleSheet()
+    elementos = []
+
+    # ── Stile titolo ──
+    estilo_titulo = ParagraphStyle(
+        'titulo',
+        parent=styles['Normal'],
+        fontSize=16,
+        fontName='Helvetica-Bold',
+        alignment=TA_CENTER,
+        spaceAfter=4
+    )
+    estilo_subtitulo = ParagraphStyle(
+        'subtitulo',
+        parent=styles['Normal'],
+        fontSize=13,
+        fontName='Helvetica-Bold',
+        alignment=TA_CENTER,
+        spaceAfter=4
+    )
+    estilo_info = ParagraphStyle(
+        'info',
+        parent=styles['Normal'],
+        fontSize=11,
+        fontName='Helvetica',
+        alignment=TA_CENTER,
+        spaceAfter=2
+    )
+    estilo_normal = ParagraphStyle(
+        'normal',
+        parent=styles['Normal'],
+        fontSize=10,
+        fontName='Helvetica',
+        alignment=TA_LEFT,
+        spaceAfter=2
+    )
+
+    # ── Intestazione ──
+    elementos.append(Paragraph("Paróquia SS. Trindade", estilo_titulo))
+    elementos.append(Paragraph("Livro de Ponto — Yolanda", estilo_subtitulo))
+    elementos.append(Paragraph(f"Mês: {mes_nome} {ano}", estilo_info))
+    elementos.append(Paragraph(f"Total de Horas Trabalhadas: {total_h}h {total_m:02d}m", estilo_info))
+    elementos.append(Spacer(1, 0.5*cm))
+
+    # ── Linea separatrice ──
+    elementos.append(Table(
+        [['']],
+        colWidths=[17*cm],
+        style=TableStyle([('LINEBELOW', (0,0), (-1,-1), 1, colors.black)])
+    ))
+    elementos.append(Spacer(1, 0.4*cm))
+
+    # ── Tabella dati ──
+    intestazione = ["Data", "Dia da Semana", "Entrada", "Saída", "Horas", "Notas"]
+    dati = [intestazione]
+
+    for _, row in do_mes.iterrows():
+        dati.append([
+            str(row.get("Data", "")),
+            str(row.get("Dia da Semana", "")),
+            str(row.get("Entrada", "")),
+            str(row.get("Saída", "")),
+            str(row.get("Horas Trabalhadas", "")),
+            str(row.get("Notas", ""))
+        ])
+
+    tabela = Table(
+        dati,
+        colWidths=[2.5*cm, 3.2*cm, 2.2*cm, 2.2*cm, 2.2*cm, 4.7*cm],
+        repeatRows=1
+    )
+    tabela.setStyle(TableStyle([
+        # Intestazione
+        ('BACKGROUND',   (0,0), (-1,0),  colors.HexColor("#2c3e50")),
+        ('TEXTCOLOR',    (0,0), (-1,0),  colors.white),
+        ('FONTNAME',     (0,0), (-1,0),  'Helvetica-Bold'),
+        ('FONTSIZE',     (0,0), (-1,0),  9),
+        ('ALIGN',        (0,0), (-1,0),  'CENTER'),
+        # Dati
+        ('FONTNAME',     (0,1), (-1,-1), 'Helvetica'),
+        ('FONTSIZE',     (0,1), (-1,-1), 9),
+        ('ALIGN',        (0,1), (-1,-1), 'CENTER'),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor("#f2f2f2")]),
+        # Bordi
+        ('GRID',         (0,0), (-1,-1), 0.5, colors.grey),
+        ('BOTTOMPADDING',(0,0), (-1,-1), 5),
+        ('TOPPADDING',   (0,0), (-1,-1), 5),
+    ]))
+
+    elementos.append(tabela)
+    elementos.append(Spacer(1, 1.5*cm))
+
+    # ── Spazio per le firme ──
+    estilo_firma = ParagraphStyle(
+        'firma',
+        parent=styles['Normal'],
+        fontSize=10,
+        fontName='Helvetica',
+        alignment=TA_CENTER,
+        spaceAfter=2
+    )
+
+    dados_assinatura = [
+        [
+            Paragraph("_______________________________", estilo_firma),
+            Paragraph("_______________________________", estilo_firma)
+        ],
+        [
+            Paragraph("<b>Pároco: Pe. Pasquale Peluso</b>", estilo_firma),
+            Paragraph("<b>Secretária: Yolanda Facitela Clávio</b>", estilo_firma)
+        ],
+        [
+            Paragraph("Data: _____ / _____ / _________", estilo_firma),
+            Paragraph("Data: _____ / _____ / _________", estilo_firma)
+        ]
+    ]
+
+    tabela_assinatura = Table(
+        dados_assinatura,
+        colWidths=[8.5*cm, 8.5*cm]
+    )
+    tabela_assinatura.setStyle(TableStyle([
+        ('ALIGN',    (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN',   (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+    ]))
+
+    elementos.append(Paragraph("Assinaturas:", estilo_normal))
+    elementos.append(Spacer(1, 0.3*cm))
+    elementos.append(tabela_assinatura)
+
+    doc.build(elementos)
+    buffer.seek(0)
+    return buffer
+
+# ════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ════════════════════════════════════════════════════════════════
 st.sidebar.title("📅 Meses")
 ano = datetime.now().year
 mes = st.sidebar.selectbox(
@@ -87,7 +238,6 @@ st.sidebar.markdown(f"### {meses[mes]} {ano}")
 st.sidebar.markdown("---")
 num_dias = calendar.monthrange(ano, mes)[1]
 
-# Riepilogo ore nel mese nella sidebar
 df_side = carregar_dados()
 if not df_side.empty and "Mês" in df_side.columns:
     do_mes_side = df_side[
@@ -103,20 +253,24 @@ if not df_side.empty and "Mês" in df_side.columns:
                 try: tot += int(p[0])*60 + int(p[1].strip())
                 except: pass
         st.sidebar.success(f"⏱️ **Total:** {tot//60}h {tot%60:02d}m")
-        st.sidebar.info(f"📅 **Dias registados:** {len(do_mes_side)}")
+        st.sidebar.info(f"📅 **Dias:** {len(do_mes_side)}")
     else:
         st.sidebar.info("Nenhum registo este mês")
 
-# ── CABEÇALHO PRINCIPAL ──────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# CABEÇALHO
+# ════════════════════════════════════════════════════════════════
 st.title("⛪ Paróquia SS. Trindade")
-st.subheader("Livro de Ponto")
+st.subheader("Livro de Ponto — Yolanda Facitela Clávio")
 st.markdown(
     "**Pároco:** Pe. Pasquale Peluso &nbsp;|&nbsp; "
     "**Secretária:** Yolanda Facitela Clávio"
 )
 st.markdown("---")
 
-# ── FORMULÁRIO DE REGISTO ────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# FORMULÁRIO
+# ════════════════════════════════════════════════════════════════
 st.subheader(f"📝 Novo Registo — {meses[mes]} {ano}")
 
 col1, col2, col3 = st.columns(3)
@@ -137,30 +291,22 @@ with col1:
         st.warning(f"🎉 Feriado: {fer}")
 
 with col2:
-    entrada = st.text_input(
-        "⏰ Hora de Entrada",
-        placeholder="08:00",
-        key=f"ent_{mes}_{dia}"
-    )
+    entrada = st.text_input("⏰ Hora de Entrada", placeholder="08:00",
+                            key=f"ent_{mes}_{dia}")
 
 with col3:
-    saida = st.text_input(
-        "⏰ Hora de Saída",
-        placeholder="16:30",
-        key=f"sai_{mes}_{dia}"
-    )
+    saida = st.text_input("⏰ Hora de Saída", placeholder="16:30",
+                          key=f"sai_{mes}_{dia}")
 
-notas = st.text_input(
-    "📝 Notas",
-    value=f"Feriado: {fer}" if fer else "",
-    key=f"not_{mes}_{dia}"
-)
+notas = st.text_input("📝 Notas",
+                      value=f"Feriado: {fer}" if fer else "",
+                      key=f"not_{mes}_{dia}")
 
-# ── PULSANTE SALVA ───────────────────────────────────────────────
 if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
     if entrada and saida:
         horas, ok = calc_horas(entrada, saida)
         if ok:
+            import json
             reg = {
                 "Data": data_obj.strftime("%d/%m/%Y"),
                 "DiaSemana": dsem,
@@ -179,76 +325,4 @@ if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
         else:
             st.error(horas)
     else:
-        st.warning("⚠️ Por favor, insira a hora de entrada e saída.")
-
-st.markdown("---")
-
-# ── TABELA DO MÊS ────────────────────────────────────────────────
-st.subheader(f"📊 Registos de {meses[mes]} {ano}")
-
-df_all = carregar_dados()
-
-if not df_all.empty and "Mês" in df_all.columns:
-    do_mes = df_all[
-        (df_all["Mês"].astype(str) == str(mes)) &
-        (df_all["Ano"].astype(str) == str(ano))
-    ].copy()
-
-    if not do_mes.empty:
-        do_mes = do_mes.sort_values("Data")
-        cols = ["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Notas"]
-        cols_ok = [c for c in cols if c in do_mes.columns]
-        st.dataframe(do_mes[cols_ok], use_container_width=True, hide_index=True)
-
-        # Totale ore del mese
-        tot = 0
-        for h in do_mes["Horas Trabalhadas"]:
-            h = str(h)
-            if "h" in h:
-                p = h.replace("m","").split("h")
-                try: tot += int(p[0])*60 + int(p[1].strip())
-                except: pass
-
-        c1, c2 = st.columns(2)
-        c1.metric("⏱️ Total de Horas", f"{tot//60}h {tot%60:02d}m")
-        c2.metric("📅 Dias Trabalhados", len(do_mes))
-
-        # ── DOWNLOAD EXCEL ────────────────────────────────────────
-        st.markdown("---")
-        st.subheader("📥 Exportar Excel para Assinar")
-
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            do_mes[cols_ok].to_excel(
-                writer, sheet_name=meses[mes], index=False, startrow=7
-            )
-            ws = writer.sheets[meses[mes]]
-            ws["A1"] = "Paróquia SS. Trindade"
-            ws["A2"] = "Livro de Ponto"
-            ws["A3"] = "Pároco: Pe. Pasquale Peluso"
-            ws["A4"] = "Secretária: Yolanda Facitela Clávio"
-            ws["A5"] = f"Mês: {meses[mes]} {ano}"
-            ws["A6"] = f"Total de Horas: {tot//60}h {tot%60:02d}m"
-            from openpyxl.styles import Font, Alignment
-            ws["A1"].font = Font(bold=True, size=14)
-            ws["A2"].font = Font(bold=True, size=12)
-            ws["A1"].alignment = Alignment(horizontal="center")
-            ws["A2"].alignment = Alignment(horizontal="center")
-
-        st.download_button(
-            label=f"📄 Baixar Excel — {meses[mes]} {ano}",
-            data=output.getvalue(),
-            file_name=f"LivroPonto_{meses[mes]}_{ano}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-        st.info("💡 Abra, imprima e entregue para assinatura da Yolanda.")
-
-    else:
-        st.info(f"📝 Nenhum registo para {meses[mes]} {ano}.")
-else:
-    st.info("📝 Ainda sem dados. Adicione o primeiro registo acima!")
-
-# ── RODAPÉ ───────────────────────────────────────────────────────
-st.markdown("---")
-st.caption("Paróquia SS. Trindade — Maputo, Moçambique")
+        st.warning("
