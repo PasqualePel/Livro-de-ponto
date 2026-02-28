@@ -11,8 +11,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── Link dello script Google (salvato direttamente nel codice) ───
-SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzK268XUzyLr4TJlksHJf1k8GEPyOG7DrwItH8iw_dSdb6ysVShyEQIsau2lth27kKY/exec"
+# ── Link dello script Google ─────────────────────────────────────
+SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzK268XUzyLr4TJlksHJf1k8GEPyOG7DrwItH8iw_dSdb6ysVShyEQlsau2lth27kKY/exec"
 SHEET_ID = "1KhoFXD3oB91U-gh1zy1-YCK4Kug4XfdlpwttXPU6KAY"
 
 # ── Feriados Moçambique ──────────────────────────────────────────
@@ -37,6 +37,7 @@ meses = {
 dias_semana_pt = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
 
 # ── Legge i dati dal foglio Google ──────────────────────────────
+@st.cache_data(ttl=30)
 def carregar_dados():
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
     try:
@@ -48,7 +49,14 @@ def carregar_dados():
 # ── Salva i dati tramite Google Apps Script ──────────────────────
 def guardar_registo(reg):
     try:
-        resp = requests.post(SCRIPT_URL, json=reg, timeout=15)
+        headers = {"Content-Type": "application/json"}
+        resp = requests.post(
+            SCRIPT_URL,
+            data=str(reg).replace("'", '"'),
+            headers=headers,
+            timeout=15,
+            allow_redirects=True
+        )
         return True
     except Exception as e:
         st.error(f"Erro ao guardar: {e}")
@@ -163,10 +171,11 @@ if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
                 "Mes": mes,
                 "Ano": ano
             }
-            with st.spinner("A guardar..."):
+            with st.spinner("A guardar no Google Sheets..."):
                 if guardar_registo(reg):
-                    st.success(f"✅ Guardado com sucesso! {data_obj.strftime('%d/%m/%Y')} — {horas}")
+                    st.success(f"✅ Guardado! {data_obj.strftime('%d/%m/%Y')} — {horas}")
                     st.balloons()
+                    st.cache_data.clear()
         else:
             st.error(horas)
     else:
@@ -188,10 +197,8 @@ if not df_all.empty and "Mês" in df_all.columns:
     if not do_mes.empty:
         do_mes = do_mes.sort_values("Data")
         cols = ["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Notas"]
-        
-        # Mostra solo le colonne che esistono
-        cols_existentes = [c for c in cols if c in do_mes.columns]
-        st.dataframe(do_mes[cols_existentes], use_container_width=True, hide_index=True)
+        cols_ok = [c for c in cols if c in do_mes.columns]
+        st.dataframe(do_mes[cols_ok], use_container_width=True, hide_index=True)
 
         # Totale ore del mese
         tot = 0
@@ -212,7 +219,7 @@ if not df_all.empty and "Mês" in df_all.columns:
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            do_mes[cols_existentes].to_excel(
+            do_mes[cols_ok].to_excel(
                 writer, sheet_name=meses[mes], index=False, startrow=7
             )
             ws = writer.sheets[meses[mes]]
@@ -235,10 +242,10 @@ if not df_all.empty and "Mês" in df_all.columns:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-        st.info("💡 Abra o ficheiro Excel, imprima e entregue para assinatura da Yolanda.")
+        st.info("💡 Abra, imprima e entregue para assinatura da Yolanda.")
 
     else:
-        st.info(f"📝 Nenhum registo para {meses[mes]} {ano}. Adicione o primeiro registo acima!")
+        st.info(f"📝 Nenhum registo para {meses[mes]} {ano}.")
 else:
     st.info("📝 Ainda sem dados. Adicione o primeiro registo acima!")
 
