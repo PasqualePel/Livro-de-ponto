@@ -3,111 +3,115 @@ import pandas as pd
 from datetime import datetime, time
 import io
 
-# 1. CONFIGURAZIONE DELLA PAGINA
-st.set_page_config(page_title="Livro de Ponto", page_icon="📝", layout="centered")
+# 1. IMPOSTAZIONI PAGINA
+st.set_page_config(page_title="Livro de Ponto", page_icon="📝")
 
-# 2. INTESTAZIONE (PARROCCHIA E NOMI)
+# 2. INTESTAZIONE
 st.title("📝 Livro de Ponto")
 st.markdown("### **Paróquia SS. Trindade**")
 st.write("**Pároco:** Pe. Pasquale Peluso")
 st.write("**Funcionária:** Yolanda Facitela Clávio")
 st.divider()
 
-# 3. MEMORIA TEMPORANEA (Per salvare i giorni inseriti durante la sessione)
-if 'dados' not in st.session_state:
-    st.session_state['dados'] = pd.DataFrame(columns=["Data", "Entrada", "Saída", "Horas", "Obs"])
+# 3. MEMORIA PER IL MESE (Salva i dati finché la pagina è aperta)
+if 'registro_mensal' not in st.session_state:
+    st.session_state['registro_mensal'] = pd.DataFrame(columns=["Data", "Entrada", "Saída", "Horas", "Obs"])
 
 # 4. FESTIVI MOZAMBICO
 feriados_mz = {
-    "01-01": "Ano Novo",
-    "03-02": "Dia dos Heróis Moçambicanos",
-    "07-04": "Dia da Mulher Moçambicana",
-    "01-05": "Dia do Trabalhador",
-    "25-06": "Dia da Independência Nacional",
-    "07-09": "Dia da Vitória",
-    "25-09": "Dia das Forças Armadas",
-    "04-10": "Dia da Paz e Reconciliação",
-    "25-12": "Natal / Dia da Família"
+    "01-01": "Ano Novo", "03-02": "Dia dos Heróis", "07-04": "Dia da Mulher",
+    "01-05": "Dia do Trabalhador", "25-06": "Independência", "07-09": "Dia da Vitória",
+    "25-09": "Dia das Forças Armadas", "04-10": "Dia da Paz", "25-12": "Natal"
 }
 
-# 5. AREA DI INSERIMENTO DATI
-st.subheader("Registrar Horário de Hoje")
+# 5. INSERIMENTO MANUALE
+st.subheader("Registrar Dia de Trabalho")
 
-col1, col2 = st.columns(2)
+# Layout a colonne per inserire i dati
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    data_hj = st.date_input("Data", datetime.now())
-    h_entrada = st.time_input("Hora de Entrada", time(8, 0))
+    # Qui Yolanda sceglie il giorno del mese
+    data_sel = st.date_input("Escolha a Data", datetime.now())
 
 with col2:
-    # Verifica se è festivo
-    dia_mes = data_hj.strftime("%d-%m")
-    nota_feriado = ""
-    if dia_mes in feriados_mz:
-        st.warning(f"Feriado: {feriados_mz[dia_mes]}")
-        nota_feriado = feriados_mz[dia_mes]
-    
-    h_saida = st.time_input("Hora de Saída", time(17, 0))
+    # Qui scrive l'orario di entrata
+    h_in = st.time_input("Hora de Entrada", time(8, 0))
 
-# 6. CALCOLO DELLE ORE
-dt_in = datetime.combine(data_hj, h_entrada)
-dt_out = datetime.combine(data_hj, h_saida)
-differenza = dt_out - dt_in
-ore_totali = differenza.total_seconds() / 3600
+with col3:
+    # Qui scrive l'orario di uscita
+    h_out = st.time_input("Hora de Saída", time(17, 0))
 
-if st.button("Adicionar ao Relatório"):
-    if ore_totali <= 0:
-        st.error("Erro: A hora de saída deve ser depois da entrada!")
+# Controllo festivi
+dia_mes = data_sel.strftime("%d-%m")
+obs_feriado = feriados_mz.get(dia_mes, "")
+if obs_feriado:
+    st.info(f"Nota: {obs_feriado} (Feriado)")
+
+# Pulsante per aggiungere alla lista del mese
+if st.button("Adicionar ao Relatório Mensal"):
+    # Calcolo durata
+    t1 = datetime.combine(data_sel, h_in)
+    t2 = datetime.combine(data_sel, h_out)
+    diff = t2 - t1
+    total_h = diff.total_seconds() / 3600
+
+    if total_h <= 0:
+        st.error("A hora de saída deve ser maior que a entrada!")
     else:
-        novo_dia = {
-            "Data": data_hj.strftime("%d/%m/%Y"),
-            "Entrada": h_entrada.strftime("%H:%M"),
-            "Saída": h_saida.strftime("%H:%M"),
-            "Horas": round(ore_totali, 2),
-            "Obs": nota_feriado
+        novo_registro = {
+            "Data": data_sel.strftime("%d/%m/%Y"),
+            "Entrada": h_in.strftime("%H:%M"),
+            "Saída": h_out.strftime("%H:%M"),
+            "Horas": round(total_h, 2),
+            "Obs": obs_feriado
         }
-        # Aggiunge il giorno alla tabella
-        st.session_state['dados'] = pd.concat([st.session_state['dados'], pd.DataFrame([novo_dia])], ignore_index=True)
-        st.success("Dia adicionado com sucesso!")
+        # Aggiunge alla tabella esistente
+        st.session_state['registro_mensal'] = pd.concat([st.session_state['registro_mensal'], pd.DataFrame([novo_registro])], ignore_index=True)
+        # Ordina per data automaticamente
+        st.session_state['registro_mensal']['Data_dt'] = pd.to_datetime(st.session_state['registro_mensal']['Data'], format='%d/%m/%Y')
+        st.session_state['registro_mensal'] = st.session_state['registro_mensal'].sort_values(by='Data_dt').drop(columns=['Data_dt'])
+        st.success(f"Dia {data_sel.strftime('%d/%m')} adicionado!")
 
-# 7. VISUALIZZAZIONE TABELLA
+# 6. TABELLA RIASSUNTIVA DEL MESE
 st.divider()
-st.subheader("Registros do Mês")
-if not st.session_state['dados'].empty:
-    st.table(st.session_state['dados'])
+st.subheader("Resumo do Mês")
+if not st.session_state['registro_mensal'].empty:
+    st.dataframe(st.session_state['registro_mensal'], use_container_width=True)
     
-    # 8. FUNZIONE PER CREARE L'EXCEL CON LE FIRME
-    def criar_excel(df):
+    # Calcolo totale ore del mese
+    total_mes = st.session_state['registro_mensal']['Horas'].sum()
+    st.write(f"**Total acumulado no mês: {total_mes:.2f} horas**")
+
+    # 7. GENERAZIONE EXCEL CON FIRME
+    def prepare_excel(df):
         output = io.BytesIO()
-        # Creiamo il file Excel
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Ponto_Mensal', startrow=2)
+            df.to_excel(writer, index=False, sheet_name='Ponto', startrow=4)
+            sheet = writer.sheets['Ponto']
+            sheet['A1'] = "PARÓQUIA SS. TRINDADE - LIVRO DE PONTO"
+            sheet['A2'] = f"Funcionária: Yolanda Facitela Clávio"
+            sheet['A3'] = f"Pároco: Pe. Pasquale Peluso"
             
-            # Accesso al foglio per aggiungere le intestazioni e le firme
-            workbook = writer.book
-            worksheet = writer.sheets['Ponto_Mensal']
-            
-            # Intestazione nel foglio Excel
-            worksheet['A1'] = "LIVRO DE PONTO - PARÓQUIA SS. TRINDADE"
-            worksheet['A2'] = f"Funcionária: Yolanda Facitela Clávio | Pároco: Pe. Pasquale Peluso"
-            
-            # Spazio per le firme in fondo
-            ultima_linha = len(df) + 6
-            worksheet[f'A{ultima_linha}'] = "__________________________"
-            worksheet[f'A{ultima_linha+1}'] = "Assinatura da Funcionária"
-            
-            worksheet[f'D{ultima_linha}'] = "__________________________"
-            worksheet[f'D{ultima_linha+1}'] = "Assinatura do Pároco"
-            
+            # Linee per le firme in fondo
+            last_row = len(df) + 7
+            sheet[f'A{last_row}'] = "__________________________"
+            sheet[f'A{last_row+1}'] = "Assinatura Yolanda"
+            sheet[f'C{last_row}'] = "__________________________"
+            sheet[f'C{last_row+1}'] = "Assinatura Pe. Pasquale"
         return output.getvalue()
 
-    # Bottone di Download
-    excel_file = criar_excel(st.session_state['dados'])
+    excel_data = prepare_excel(st.session_state['registro_mensal'])
     st.download_button(
-        label="📥 Baixar Excel para Assinatura",
-        data=excel_file,
-        file_name=f"Livro_de_Ponto_Yolanda_{datetime.now().strftime('%m_%Y')}.xlsx",
+        label="📥 Baixar Relatório Mensal (Excel)",
+        data=excel_data,
+        file_name=f"Livro_Ponto_Yolanda_{datetime.now().strftime('%m_%Y')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+    
+    # Bottone per pulire tutto e ricominciare il mese
+    if st.button("Limpar tudo (Novo Mês)"):
+        st.session_state['registro_mensal'] = pd.DataFrame(columns=["Data", "Entrada", "Saída", "Horas", "Obs"])
+        st.rerun()
 else:
-    st.info("Nenhum dado inserido ainda.")
+    st.info("Ainda não há registros para este mês.")
