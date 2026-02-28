@@ -1,7 +1,8 @@
 import streamlit as st
-from datetime import datetime, date, time
+from datetime import datetime, date, timedelta
 import pandas as pd
 from io import BytesIO
+import calendar
 
 # Configurazione della pagina
 st.set_page_config(
@@ -47,6 +48,28 @@ st.sidebar.markdown("---")
 st.sidebar.markdown(f"**Ano:** {ano_atual}")
 st.sidebar.markdown(f"**Mês:** {meses[mes_selecionado]}")
 
+# Calcola quanti giorni ha il mese selezionato
+num_dias_mes = calendar.monthrange(ano_atual, mes_selecionado)[1]
+
+st.sidebar.markdown(f"**Dias no mês:** {num_dias_mes}")
+st.sidebar.markdown("---")
+
+# Mostra riepilogo ore totali del mese nella sidebar
+registos_mes_sidebar = [r for r in st.session_state.registos 
+                        if r['Mês'] == mes_selecionado and r['Ano'] == ano_atual]
+if registos_mes_sidebar:
+    total_minutos_sidebar = 0
+    for r in registos_mes_sidebar:
+        if "h" in r['Horas']:
+            parts = r['Horas'].replace('m', '').split('h')
+            total_minutos_sidebar += int(parts[0]) * 60 + int(parts[1].strip())
+    
+    total_h_sidebar = total_minutos_sidebar // 60
+    total_m_sidebar = total_minutos_sidebar % 60
+    st.sidebar.success(f"**Total Horas:**\n{total_h_sidebar}h {total_m_sidebar:02d}m")
+else:
+    st.sidebar.info("Nenhum registo este mês")
+
 # CONTENUTO PRINCIPALE
 st.title("⛪ Paróquia SS. Trindade")
 st.header("Livro de Ponto")
@@ -54,53 +77,65 @@ st.markdown("**Pároco:** Pe. Pasquale Peluso  \n**Secretária:** Yolanda Facite
 st.markdown("---")
 
 # Sezione inserimento nuovo registo
-st.subheader("📝 Novo Registo")
+st.subheader(f"📝 Novo Registo - {meses[mes_selecionado]} {ano_atual}")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    # Data con formato giorno/mese/anno
-    data_input = st.date_input(
-        "Data",
-        value=date.today(),
-        format="DD/MM/YYYY"
+    # Selezione del GIORNO del mese selezionato
+    dia_selecionado = st.selectbox(
+        "Dia do mês",
+        options=list(range(1, num_dias_mes + 1)),
+        index=min(datetime.now().day - 1, num_dias_mes - 1) if mes_selecionado == datetime.now().month else 0
     )
     
+    # Costruisce la data completa
+    data_completa = date(ano_atual, mes_selecionado, dia_selecionado)
+    
+    # Mostra la data formattata
+    st.info(f"📅 {data_completa.strftime('%d/%m/%Y')}")
+    
+    # Nome del giorno della settimana in portoghese
+    dias_semana = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+    dia_semana = dias_semana[data_completa.weekday()]
+    st.caption(f"({dia_semana})")
+    
     # Controlla se è festa
-    giorno_mese = data_input.strftime("%d-%m")
+    giorno_mese = data_completa.strftime("%d-%m")
     feriado_oggi = feriados.get(giorno_mese, "")
     
     if feriado_oggi:
-        st.info(f"🎉 {feriado_hoje}")
+        st.warning(f"🎉 {feriado_oggi}")
 
 with col2:
-    # Orario di entrata - tu lo scrivi manualmente
+    # Orario di entrata
     entrada_input = st.text_input(
-        "Hora de Entrada (ex: 08:23)",
-        placeholder="08:23"
+        "Hora de Entrada",
+        placeholder="08:23",
+        key=f"entrada_{mes_selecionado}_{dia_selecionado}"
     )
 
 with col3:
-    # Orario di uscita - tu lo scrivi manualmente
+    # Orario di uscita
     saida_input = st.text_input(
-        "Hora de Saída (ex: 16:30)",
-        placeholder="16:30"
+        "Hora de Saída",
+        placeholder="16:30",
+        key=f"saida_{mes_selecionado}_{dia_selecionado}"
     )
 
 # Campo note
 notas_input = st.text_input(
     "Notas / Observações",
-    value=f"Feriado: {feriado_hoje}" if feriado_oggi else ""
+    value=f"Feriado: {feriado_oggi}" if feriado_oggi else "",
+    key=f"notas_{mes_selecionado}_{dia_selecionado}"
 )
 
 # Funzione per calcolare le ore lavorate
 def calcular_horas(entrada_str, saida_str):
     try:
-        # Converte le stringhe in oggetti time
         entrada = datetime.strptime(entrada_str, "%H:%M").time()
         saida = datetime.strptime(saida_str, "%H:%M").time()
         
-        # Calcola i minuti totali
         min_entrada = entrada.hour * 60 + entrada.minute
         min_saida = saida.hour * 60 + saida.minute
         diff_min = min_saida - min_entrada
@@ -112,7 +147,7 @@ def calcular_horas(entrada_str, saida_str):
         else:
             return "Erro: saída antes da entrada", False
     except:
-        return "Formato inválido", False
+        return "Formato inválido (use HH:MM)", False
 
 # Pulsante per salvare
 if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
@@ -120,18 +155,30 @@ if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
         horas_trabalhadas, valido = calcular_horas(entrada_input, saida_input)
         
         if valido:
-            # Salva il registo
+            # Controlla se esiste già un registo per questo giorno
+            registo_esistente = None
+            for idx, r in enumerate(st.session_state.registos):
+                if r['Data'] == data_completa.strftime("%d/%m/%Y"):
+                    registo_esistente = idx
+                    break
+            
             novo_registo = {
-                "Data": data_input.strftime("%d/%m/%Y"),
+                "Data": data_completa.strftime("%d/%m/%Y"),
                 "Entrada": entrada_input,
                 "Saída": saida_input,
                 "Horas": horas_trabalhadas,
                 "Notas": notas_input,
-                "Mês": data_input.month,
-                "Ano": data_input.year
+                "Mês": mes_selecionado,
+                "Ano": ano_atual,
+                "DiaSemana": dia_semana
             }
-            st.session_state.registos.append(novo_registo)
-            st.success(f"✅ Registo guardado! Horas trabalhadas: {horas_trabalhadas}")
+            
+            if registo_esistente is not None:
+                st.session_state.registos[registo_esistente] = novo_registo
+                st.success(f"✅ Registo atualizado! ({data_completa.strftime('%d/%m/%Y')}) - Horas: {horas_trabalhadas}")
+            else:
+                st.session_state.registos.append(novo_registo)
+                st.success(f"✅ Registo guardado! ({data_completa.strftime('%d/%m/%Y')}) - Horas: {horas_trabalhadas}")
             st.balloons()
         else:
             st.error(horas_trabalhadas)
@@ -140,23 +187,26 @@ if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
 
 st.markdown("---")
 
-# Mostra i dati del mese selezionato
+# Mostra tutti i giorni del mese con i dati
 st.subheader(f"📊 Registos de {meses[mes_selecionado]} {ano_atual}")
 
-# Filtra i dati per il mese selezionato
+# Filtra e ordina i dati per il mese selezionato
 registos_mes = [r for r in st.session_state.registos 
                 if r['Mês'] == mes_selecionado and r['Ano'] == ano_atual]
 
-if registos_mes:
+# Ordina per data
+registos_mes_sorted = sorted(registos_mes, key=lambda x: datetime.strptime(x['Data'], "%d/%m/%Y"))
+
+if registos_mes_sorted:
     # Crea DataFrame per visualizzazione
-    df = pd.DataFrame(registos_mes)
-    df_display = df[['Data', 'Entrada', 'Saída', 'Horas', 'Notas']]
+    df = pd.DataFrame(registos_mes_sorted)
+    df_display = df[['Data', 'DiaSemana', 'Entrada', 'Saída', 'Horas', 'Notas']]
     
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     # Calcola totale ore del mese
     total_minutos = 0
-    for r in registos_mes:
+    for r in registos_mes_sorted:
         if "h" in r['Horas']:
             parts = r['Horas'].replace('m', '').split('h')
             total_minutos += int(parts[0]) * 60 + int(parts[1].strip())
@@ -164,30 +214,38 @@ if registos_mes:
     total_h = total_minutos // 60
     total_m = total_minutos % 60
     
-    st.metric("Total de Horas Trabalhadas no Mês", f"{total_h}h {total_m:02d}m")
+    col_metric1, col_metric2 = st.columns(2)
+    with col_metric1:
+        st.metric("Total de Horas Trabalhadas", f"{total_h}h {total_m:02d}m")
+    with col_metric2:
+        st.metric("Dias Registados", len(registos_mes_sorted))
     
     # PULSANTE PER SCARICARE IL PDF DEL MESE
     st.markdown("---")
-    st.subheader("📥 Exportar para Excel/PDF")
+    st.subheader("📥 Exportar para Excel")
     
     # Crea Excel in memoria
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Aggiunge intestazione personalizzata
-        header_df = pd.DataFrame({
-            'A': ['Paróquia SS. Trindade', 
-                  'Livro de Ponto',
-                  f'Pároco: Pe. Pasquale Peluso',
-                  'Secretária: Yolanda Facitela Clávio',
-                  f'Mês: {meses[mes_selecionado]} {ano_atual}',
-                  '',
-                  '']
-        })
+        df_export = df[['Data', 'DiaSemana', 'Entrada', 'Saída', 'Horas', 'Notas']].copy()
+        df_export.columns = ['Data', 'Dia da Semana', 'Entrada', 'Saída', 'Horas Trabalhadas', 'Notas']
         
-        df_export = df[['Data', 'Entrada', 'Saída', 'Horas', 'Notas']]
-        final_df = pd.concat([header_df, df_export], ignore_index=True)
-        final_df.to_excel(writer, sheet_name=meses[mes_selecionado], index=False, header=False)
-    
+        df_export.to_excel(writer, sheet_name=meses[mes_selecionado], index=False, startrow=7)
+        
+        # Accede al foglio per aggiungere intestazione
+        worksheet = writer.sheets[meses[mes_selecionado]]
+        worksheet['A1'] = 'Paróquia SS. Trindade'
+        worksheet['A2'] = 'Livro de Ponto'
+        worksheet['A3'] = f'Pároco: Pe. Pasquale Peluso'
+        worksheet['A4'] = 'Secretária: Yolanda Facitela Clávio'
+        worksheet['A5'] = f'Mês: {meses[mes_selecionado]} {ano_atual}'
+        worksheet['A6'] = f'Total de Horas: {total_h}h {total_m:02d}m'
+        
+        # Formattazione
+        from openpyxl.styles import Font, Alignment
+        worksheet['A1'].font = Font(bold=True, size=14)
+        worksheet['A2'].font = Font(bold=True, size=12)
+        
     excel_data = output.getvalue()
     
     st.download_button(
@@ -198,10 +256,11 @@ if registos_mes:
         use_container_width=True
     )
     
-    st.info("💡 Pode abrir o ficheiro Excel, imprimir e entregar para assinatura.")
+    st.info("💡 Abra o Excel, imprima e entregue para assinatura da Yolanda.")
     
 else:
-    st.info(f"Nenhum registo para {meses[mes_selecionado]} {ano_atual}. Adicione o primeiro registo acima!")
+    st.info(f"📝 Nenhum registo para {meses[mes_selecionado]} {ano_atual}.")
+    st.markdown(f"Use o formulário acima para adicionar os dias trabalhados (1 a {num_dias_mes}).")
 
 # Footer
 st.markdown("---")
