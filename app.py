@@ -4,7 +4,6 @@ import pandas as pd
 from io import BytesIO
 import calendar
 import requests
-import json
 
 st.set_page_config(
     page_title="Livro de Ponto - Paróquia SS. Trindade",
@@ -12,10 +11,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# ID del tuo foglio Google
+# ── Link dello script Google (salvato direttamente nel codice) ───
+SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzK268XUzyLr4TJlksHJf1k8GEPyOG7DrwItH8iw_dSdb6ysVShyEQIsau2lth27kKY/exec"
 SHEET_ID = "1KhoFXD3oB91U-gh1zy1-YCK4Kug4XfdlpwttXPU6KAY"
 
-# Feriados Moçambique
+# ── Feriados Moçambique ──────────────────────────────────────────
 feriados = {
     "01-01": "Ano Novo",
     "03-02": "Dia dos Heróis Moçambicanos",
@@ -36,7 +36,7 @@ meses = {
 
 dias_semana_pt = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
 
-# ── Legge i dati dal foglio Google (pubblico) ────────────────────
+# ── Legge i dati dal foglio Google ──────────────────────────────
 def carregar_dados():
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
     try:
@@ -45,16 +45,16 @@ def carregar_dados():
     except:
         return pd.DataFrame(columns=["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Notas","Mês","Ano"])
 
-# ── Salva i dati tramite Google Apps Script (Web App) ────────────
+# ── Salva i dati tramite Google Apps Script ──────────────────────
 def guardar_registo(reg):
-    SCRIPT_URL = st.secrets["script_url"]
     try:
-        resp = requests.post(SCRIPT_URL, json=reg, timeout=10)
+        resp = requests.post(SCRIPT_URL, json=reg, timeout=15)
         return True
     except Exception as e:
         st.error(f"Erro ao guardar: {e}")
         return False
 
+# ── Calcola le ore lavorate ──────────────────────────────────────
 def calc_horas(ent, sai):
     try:
         e = datetime.strptime(ent.strip(), "%H:%M")
@@ -79,13 +79,36 @@ st.sidebar.markdown(f"### {meses[mes]} {ano}")
 st.sidebar.markdown("---")
 num_dias = calendar.monthrange(ano, mes)[1]
 
-# ── CABEÇALHO ────────────────────────────────────────────────────
+# Riepilogo ore nel mese nella sidebar
+df_side = carregar_dados()
+if not df_side.empty and "Mês" in df_side.columns:
+    do_mes_side = df_side[
+        (df_side["Mês"].astype(str) == str(mes)) &
+        (df_side["Ano"].astype(str) == str(ano))
+    ]
+    if not do_mes_side.empty:
+        tot = 0
+        for h in do_mes_side["Horas Trabalhadas"]:
+            h = str(h)
+            if "h" in h:
+                p = h.replace("m","").split("h")
+                try: tot += int(p[0])*60 + int(p[1].strip())
+                except: pass
+        st.sidebar.success(f"⏱️ **Total:** {tot//60}h {tot%60:02d}m")
+        st.sidebar.info(f"📅 **Dias registados:** {len(do_mes_side)}")
+    else:
+        st.sidebar.info("Nenhum registo este mês")
+
+# ── CABEÇALHO PRINCIPAL ──────────────────────────────────────────
 st.title("⛪ Paróquia SS. Trindade")
 st.subheader("Livro de Ponto")
-st.markdown("**Pároco:** Pe. Pasquale Peluso &nbsp;|&nbsp; **Secretária:** Yolanda Facitela Clávio")
+st.markdown(
+    "**Pároco:** Pe. Pasquale Peluso &nbsp;|&nbsp; "
+    "**Secretária:** Yolanda Facitela Clávio"
+)
 st.markdown("---")
 
-# ── FORMULÁRIO ───────────────────────────────────────────────────
+# ── FORMULÁRIO DE REGISTO ────────────────────────────────────────
 st.subheader(f"📝 Novo Registo — {meses[mes]} {ano}")
 
 col1, col2, col3 = st.columns(3)
@@ -103,16 +126,29 @@ with col1:
     st.info(f"📅 **{data_obj.strftime('%d/%m/%Y')}**\n\n{dsem}")
     fer = feriados.get(data_obj.strftime("%d-%m"), "")
     if fer:
-        st.warning(f"🎉 {fer}")
+        st.warning(f"🎉 Feriado: {fer}")
 
 with col2:
-    entrada = st.text_input("⏰ Hora de Entrada", placeholder="08:00", key=f"ent_{mes}_{dia}")
+    entrada = st.text_input(
+        "⏰ Hora de Entrada",
+        placeholder="08:00",
+        key=f"ent_{mes}_{dia}"
+    )
 
 with col3:
-    saida = st.text_input("⏰ Hora de Saída", placeholder="16:30", key=f"sai_{mes}_{dia}")
+    saida = st.text_input(
+        "⏰ Hora de Saída",
+        placeholder="16:30",
+        key=f"sai_{mes}_{dia}"
+    )
 
-notas = st.text_input("📝 Notas", value=f"Feriado: {fer}" if fer else "", key=f"not_{mes}_{dia}")
+notas = st.text_input(
+    "📝 Notas",
+    value=f"Feriado: {fer}" if fer else "",
+    key=f"not_{mes}_{dia}"
+)
 
+# ── PULSANTE SALVA ───────────────────────────────────────────────
 if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
     if entrada and saida:
         horas, ok = calc_horas(entrada, saida)
@@ -127,13 +163,14 @@ if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
                 "Mes": mes,
                 "Ano": ano
             }
-            if guardar_registo(reg):
-                st.success(f"✅ Guardado! {data_obj.strftime('%d/%m/%Y')} — {horas}")
-                st.balloons()
+            with st.spinner("A guardar..."):
+                if guardar_registo(reg):
+                    st.success(f"✅ Guardado com sucesso! {data_obj.strftime('%d/%m/%Y')} — {horas}")
+                    st.balloons()
         else:
             st.error(horas)
     else:
-        st.warning("⚠️ Insira a hora de entrada e saída.")
+        st.warning("⚠️ Por favor, insira a hora de entrada e saída.")
 
 st.markdown("---")
 
@@ -151,9 +188,12 @@ if not df_all.empty and "Mês" in df_all.columns:
     if not do_mes.empty:
         do_mes = do_mes.sort_values("Data")
         cols = ["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Notas"]
-        st.dataframe(do_mes[cols], use_container_width=True, hide_index=True)
+        
+        # Mostra solo le colonne che esistono
+        cols_existentes = [c for c in cols if c in do_mes.columns]
+        st.dataframe(do_mes[cols_existentes], use_container_width=True, hide_index=True)
 
-        # Totale ore
+        # Totale ore del mese
         tot = 0
         for h in do_mes["Horas Trabalhadas"]:
             h = str(h)
@@ -166,12 +206,15 @@ if not df_all.empty and "Mês" in df_all.columns:
         c1.metric("⏱️ Total de Horas", f"{tot//60}h {tot%60:02d}m")
         c2.metric("📅 Dias Trabalhados", len(do_mes))
 
-        # ── EXCEL ─────────────────────────────────────────────────
+        # ── DOWNLOAD EXCEL ────────────────────────────────────────
         st.markdown("---")
         st.subheader("📥 Exportar Excel para Assinar")
+
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            do_mes[cols].to_excel(writer, sheet_name=meses[mes], index=False, startrow=7)
+            do_mes[cols_existentes].to_excel(
+                writer, sheet_name=meses[mes], index=False, startrow=7
+            )
             ws = writer.sheets[meses[mes]]
             ws["A1"] = "Paróquia SS. Trindade"
             ws["A2"] = "Livro de Ponto"
@@ -179,9 +222,11 @@ if not df_all.empty and "Mês" in df_all.columns:
             ws["A4"] = "Secretária: Yolanda Facitela Clávio"
             ws["A5"] = f"Mês: {meses[mes]} {ano}"
             ws["A6"] = f"Total de Horas: {tot//60}h {tot%60:02d}m"
-            from openpyxl.styles import Font
+            from openpyxl.styles import Font, Alignment
             ws["A1"].font = Font(bold=True, size=14)
             ws["A2"].font = Font(bold=True, size=12)
+            ws["A1"].alignment = Alignment(horizontal="center")
+            ws["A2"].alignment = Alignment(horizontal="center")
 
         st.download_button(
             label=f"📄 Baixar Excel — {meses[mes]} {ano}",
@@ -190,11 +235,13 @@ if not df_all.empty and "Mês" in df_all.columns:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-        st.info("💡 Abra, imprima e entregue para assinatura da Yolanda.")
-    else:
-        st.info(f"Nenhum registo para {meses[mes]} {ano}.")
-else:
-    st.info("Ainda sem dados registados.")
+        st.info("💡 Abra o ficheiro Excel, imprima e entregue para assinatura da Yolanda.")
 
+    else:
+        st.info(f"📝 Nenhum registo para {meses[mes]} {ano}. Adicione o primeiro registo acima!")
+else:
+    st.info("📝 Ainda sem dados. Adicione o primeiro registo acima!")
+
+# ── RODAPÉ ───────────────────────────────────────────────────────
 st.markdown("---")
 st.caption("Paróquia SS. Trindade — Maputo, Moçambique")
