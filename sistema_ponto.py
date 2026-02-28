@@ -19,109 +19,54 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
     try:
-        # Legge i dati in tempo reale dal foglio Google
-        df = conn.read(ttl=0)
-        return df.dropna(how='all')
+        # Carica i dati dal foglio "Ponto"
+        return conn.read(worksheet="Ponto", ttl=0)
     except:
-        # Se il foglio è nuovo o vuoto, crea la struttura
-        return pd.DataFrame(columns=["Data", "Entrada", "Saída", "Horas", "Obs"])
+        # Se il foglio è vuoto, crea un DataFrame con le colonne corrette
+        return pd.DataFrame(columns=["Data", "Entrada", "Saída"])
 
-# Carichiamo la lista completa del mese
-df_mensal = carregar_dados()
+# 4. INTERFACCIA DI INSERIMENTO
+st.subheader("Registrar Horário")
 
-# 4. FESTIVI MOZAMBICO 2026
-feriados_mz = {
-    "01-01": "Ano Novo", "03-02": "Dia dos Heróis", "07-04": "Dia da Mulher",
-    "01-05": "Dia do Trabalhador", "25-06": "Independência", "07-09": "Dia da Vitória",
-    "25-09": "Dia das Forças Armadas", "04-10": "Dia da Paz", "25-12": "Natal"
-}
-
-# 5. AREA DI INSERIMENTO (Orario personalizzabile al minuto)
-st.subheader("Registrar Dia de Trabalho")
+# Creazione di tre colonne per un inserimento rapido
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    data_sel = st.date_input("Data", datetime.now())
+    data_hoje = st.date_input("Data", datetime.now())
 
 with col2:
-    # Puoi scrivere l'ora esatta, es. 08:23
-    h_in = st.time_input("Entrada", time(8, 0))
+    # Impostiamo le 08:00 come default per l'entrata
+    ora_entrada = st.time_input("Entrada", time(8, 0))
 
 with col3:
-    # Puoi scrivere l'ora esatta, es. 16:35
-    h_out = st.time_input("Saída", time(16, 30))
+    # Impostiamo le 16:30 come default per l'uscita
+    ora_saida = st.time_input("Saída", time(16, 30))
 
-# Controllo festivo automatico
-dia_mes = data_sel.strftime("%d-%m")
-nota_f = feriados_mz.get(dia_mes, "")
-if nota_f:
-    st.info(f"Feriado Moçambicano: {nota_f}")
-
-# PULSANTE PER SALVARE NEL FOGLIO GOOGLE
 if st.button("💾 Salvar Permanentemente"):
-    t1 = datetime.combine(data_sel, h_in)
-    t2 = datetime.combine(data_sel, h_out)
-    total_h = (t2 - t1).total_seconds() / 3600
+    # Prepariamo il nuovo record
+    novo_registro = pd.DataFrame([{
+        "Data": data_hoje.strftime("%d/%m/%Y"),
+        "Entrada": ora_entrada.strftime("%H:%M"),
+        "Saída": ora_saida.strftime("%H:%M")
+    }])
+    
+    # Leggiamo i dati attuali e aggiungiamo il nuovo
+    df_attuale = carregar_dados()
+    df_aggiornato = pd.concat([df_attuale, novo_registro], ignore_index=True)
+    
+    # Sovrascriviamo il foglio Google
+    conn.update(worksheet="Ponto", data=df_aggiornato)
+    st.success("✅ Registro salvo com sucesso no Google Sheets!")
+    st.balloons()
 
-    if total_h <= 0:
-        st.error("Erro: A hora de saída deve ser depois da entrada!")
-    else:
-        novo_registro = pd.DataFrame([{
-            "Data": data_sel.strftime("%d/%m/%Y"),
-            "Entrada": h_in.strftime("%H:%M"),
-            "Saída": h_out.strftime("%H:%M"),
-            "Horas": round(total_h, 2),
-            "Obs": nota_f
-        }])
-        
-        # Uniamo i vecchi dati con il nuovo e salviamo su Google
-        df_aggiornato = pd.concat([df_mensal, novo_registro], ignore_index=True)
-        conn.update(data=df_aggiornato)
-        
-        st.success(f"Dia {data_sel.strftime('%d/%m/%Y')} registrado com sucesso!")
-        st.rerun()
-
-# 6. LISTA COMPLETA DEL MESE (Visualizzazione storica)
 st.divider()
+
+# 5. STORICO MENSILE
 st.subheader("📋 Histórico Mensal")
+df_visualizza = carregar_dados()
 
-if not df_mensal.empty:
-    # Mostra tutta la lista salvata finora
-    st.dataframe(df_mensal, use_container_width=True, hide_index=True)
-    
-    # Calcolo totale ore accumulate
-    st.info(f"**Total de horas no mês: {df_mensal['Horas'].sum():.2f} h**")
-
-    # 7. FUNZIONE PER GENERARE L'EXCEL CON LE FIRME
-    def criar_excel_assinatura(df):
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Ponto', startrow=4)
-            sheet = writer.sheets['Ponto']
-            sheet['A1'] = "PARÓQUIA SS. TRINDADE - LIVRO DE PONTO"
-            sheet['A2'] = f"Funcionária: Yolanda Facitela Clávio"
-            sheet['A3'] = f"Pároco: Pe. Pasquale Peluso"
-            
-            # Linee per le firme in fondo all'Excel
-            pos_firma = len(df) + 8
-            sheet[f'A{pos_firma}'] = "__________________________"
-            sheet[f'A{pos_firma+1}'] = "Assinatura Yolanda"
-            sheet[f'D{pos_firma}'] = "__________________________"
-            sheet[f'D{pos_firma+1}'] = "Assinatura Pe. Pasquale"
-        return output.getvalue()
-
-    # Bottone di download per Yolanda
-    st.download_button(
-        label="📥 Baixar Excel para Assinatura",
-        data=criar_excel_assinatura(df_mensal),
-        file_name=f"Livro_Ponto_{datetime.now().strftime('%m_%Y')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-    
-    # Opzione per resettare il database (nuovo mese)
-    if st.checkbox("Mostrar opção para apagar histórico"):
-        if st.button("⚠️ Apagar Tudo"):
-            conn.update(data=pd.DataFrame(columns=["Data", "Entrada", "Saída", "Horas", "Obs"]))
-            st.rerun()
+if not df_visualizza.empty:
+    # Mostriamo la tabella con gli ultimi inserimenti in alto
+    st.dataframe(df_visualizza.iloc[::-1], use_container_width=True)
 else:
-    st.write("Ainda não há dados salvos para este mês.")
+    st.info("Nenhum registro encontrado.")
