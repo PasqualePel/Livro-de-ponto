@@ -37,9 +37,7 @@ def calc_horas(ent, sai):
         diff = int((s - e).total_seconds() // 60)
         if diff <= 0:
             return "Erro: saída antes da entrada", False
-        # Sottrae 1 ora di pausa pranzo (13:00-14:00)
-        almoco = 60
-        diff = diff - almoco
+        diff = diff - 60
         if diff <= 0:
             return "Erro: tempo insuficiente", False
         return f"{diff//60}h {diff%60:02d}m", True
@@ -56,6 +54,10 @@ def total_min(df):
             except: pass
     return t
 
+def limpar_notas(x):
+    s = str(x)
+    return "" if s == "nan" or s.strip() == "" else s
+
 def gerar_pdf(do_mes, mes_nome, ano):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
@@ -63,7 +65,6 @@ def gerar_pdf(do_mes, mes_nome, ano):
         topMargin=2*cm, bottomMargin=2*cm)
     styles = getSampleStyleSheet()
     el = []
-
     t1 = ParagraphStyle('t1',parent=styles['Normal'],fontSize=16,
         fontName='Helvetica-Bold',alignment=TA_CENTER,spaceAfter=6)
     t2 = ParagraphStyle('t2',parent=styles['Normal'],fontSize=13,
@@ -74,7 +75,6 @@ def gerar_pdf(do_mes, mes_nome, ano):
         fontName='Helvetica',alignment=TA_LEFT,spaceAfter=2)
     tf = ParagraphStyle('tf',parent=styles['Normal'],fontSize=10,
         fontName='Helvetica',alignment=TA_CENTER,spaceAfter=2)
-
     el.append(Paragraph("Paróquia SS. Trindade", t1))
     el.append(Paragraph("Livro de Ponto — Yolanda Facitela Clávio", t2))
     el.append(Spacer(1, 0.3*cm))
@@ -83,7 +83,6 @@ def gerar_pdf(do_mes, mes_nome, ano):
     el.append(Table([['']],colWidths=[17*cm],
         style=TableStyle([('LINEBELOW',(0,0),(-1,-1),1,colors.black)])))
     el.append(Spacer(1, 0.5*cm))
-
     cab = ["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Notas"]
     dati = [cab]
     for _, row in do_mes.iterrows():
@@ -93,9 +92,8 @@ def gerar_pdf(do_mes, mes_nome, ano):
             str(row.get("Entrada","")),
             str(row.get("Saída","")),
             str(row.get("Horas Trabalhadas","")),
-            str(row.get("Notas","")) if str(row.get("Notas","")) != "nan" else ""
+            limpar_notas(row.get("Notas",""))
         ])
-
     tab = Table(dati,
         colWidths=[2.8*cm,3.2*cm,2.2*cm,2.2*cm,3.0*cm,3.6*cm],
         repeatRows=1)
@@ -113,7 +111,6 @@ def gerar_pdf(do_mes, mes_nome, ano):
     ]))
     el.append(tab)
     el.append(Spacer(1, 2*cm))
-
     ass = [
         [Paragraph("_______________________________",tf),
          Paragraph("_______________________________",tf)],
@@ -138,12 +135,9 @@ def gerar_pdf(do_mes, mes_nome, ano):
 def gerar_excel(do_mes, cols_ok, mes_nome, ano):
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        # Pulisce le note "nan"
         do_export = do_mes[cols_ok].copy()
         if "Notas" in do_export.columns:
-            do_export["Notas"] = do_export["Notas"].apply(
-                lambda x: "" if str(x) == "nan" else str(x)
-            )
+            do_export["Notas"] = do_export["Notas"].apply(limpar_notas)
         do_export.to_excel(writer, sheet_name=mes_nome, index=False, startrow=7)
         ws = writer.sheets[mes_nome]
         ws["A1"] = "Paróquia SS. Trindade"
@@ -161,8 +155,7 @@ def gerar_excel(do_mes, cols_ok, mes_nome, ano):
 def carregar_dados():
     try:
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
-        df = pd.read_csv(url)
-        return df
+        return pd.read_csv(url)
     except:
         return pd.DataFrame(columns=COLS+["Mês","Ano"])
 
@@ -175,8 +168,6 @@ def guardar_registo(reg):
     except Exception as e:
         st.error(f"Erro: {e}")
         return False
-
-# ── SIDEBAR ──────────────────────────────────────────────────────
 st.sidebar.title("📅 Meses")
 ano = datetime.now().year
 mes = st.sidebar.selectbox("Selecione o mês:",
@@ -197,16 +188,13 @@ if not df0.empty and "Mês" in df0.columns:
     else:
         st.sidebar.info("Nenhum registo este mês")
 
-# ── CABEÇALHO ─────────────────────────────────────────────────────
 st.title("⛪ Paróquia SS. Trindade")
 st.subheader("Livro de Ponto — Yolanda Facitela Clávio")
 st.markdown("**Pároco:** Pe. Pasquale Peluso &nbsp;|&nbsp; **Secretária:** Yolanda Facitela Clávio")
 st.markdown("---")
-
-# ── FORMULÁRIO ────────────────────────────────────────────────────
 st.subheader(f"📝 Novo Registo — {meses[mes]} {ano}")
-c1, c2, c3 = st.columns(3)
 
+c1, c2, c3 = st.columns(3)
 with c1:
     dia = st.selectbox("Dia do mês", options=list(range(1,num_dias+1)),
         index=min(datetime.now().day-1,num_dias-1) if mes==datetime.now().month else 0,
@@ -217,35 +205,21 @@ with c1:
     fer = feriados.get(data_obj.strftime("%d-%m"), "")
     if fer:
         st.warning(f"🎉 Feriado: {fer}")
-
 with c2:
-    entrada = st.text_input("⏰ Hora de Entrada", placeholder="08:00",
-                            key=f"ent_{mes}_{dia}")
-
+    entrada = st.text_input("⏰ Hora de Entrada", placeholder="08:00", key=f"ent_{mes}_{dia}")
 with c3:
-    saida = st.text_input("⏰ Hora de Saída", placeholder="16:30",
-                          key=f"sai_{mes}_{dia}")
+    saida = st.text_input("⏰ Hora de Saída", placeholder="16:30", key=f"sai_{mes}_{dia}")
 
-# ── Note VUOTE di default ─────────────────────────────────────────
-notas = st.text_input("📝 Notas", value="", key=f"not_{mes}_{dia}",
-                      placeholder="Escreva aqui se necessário...")
-
-st.caption("ℹ️ A pausa de almoço (13h-14h) é descontada automaticamente.")
+notas = st.text_input("📝 Notas", value="", placeholder="Escreva aqui se necessário...", key=f"not_{mes}_{dia}")
+st.caption("ℹ️ A pausa de almoço (13h00 - 14h00) é descontada automaticamente.")
 
 if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
     if entrada and saida:
         horas, ok = calc_horas(entrada, saida)
         if ok:
-            reg = {
-                "Data": data_obj.strftime("%d/%m/%Y"),
-                "DiaSemana": dsem,
-                "Entrada": entrada,
-                "Saida": saida,
-                "Horas": horas,
-                "Notas": notas,
-                "Mes": mes,
-                "Ano": ano
-            }
+            reg = {"Data":data_obj.strftime("%d/%m/%Y"),"DiaSemana":dsem,
+                   "Entrada":entrada,"Saida":saida,"Horas":horas,
+                   "Notas":notas,"Mes":mes,"Ano":ano}
             with st.spinner("A guardar..."):
                 if guardar_registo(reg):
                     st.success(f"✅ Guardado! {data_obj.strftime('%d/%m/%Y')} — {horas}")
@@ -254,4 +228,15 @@ if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
         else:
             st.error(horas)
     else:
-        st.warning("⚠️ Por favor,
+        st.warning("⚠️ Por favor, insira a hora de entrada e saída.")
+
+st.markdown("---")
+st.subheader(f"📊 Registos de {meses[mes]} {ano}")
+
+df_all = carregar_dados()
+if not df_all.empty and "Mês" in df_all.columns:
+    do_mes = df_all[(df_all["Mês"].astype(str)==str(mes))&(df_all["Ano"].astype(str)==str(ano))].copy()
+    if not do_mes.empty:
+        do_mes = do_mes.sort_values("Data")
+        if "Notas" in do_mes.columns:
+            do_mes
