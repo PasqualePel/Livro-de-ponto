@@ -170,3 +170,15 @@ with b1:
     st.download_button(label=f"📄 Baixar PDF — {meses[mes]} {ano}",data=make_pdf(do_mes,meses[mes],ano),file_name=f"LivroPonto_{meses[mes]}_{ano}.pdf",mime="application/pdf",use_container_width=True)
 with b2:
     st.download_button(label=f"📊 Baixar Excel — {meses[mes]} {ano}",data=make_excel(do_mes,cols_ok,meses[mes],ano),file_name=f"LivroPonto_{meses[mes]}_{ano}.xlsx",mime="application/vnd.openxmlformats-officedocument.spread
+with b2:
+    st.download_button(
+        label=f"📊 Baixar Excel — {meses[mes]} {ano}",
+        data=make_excel(do_mes,cols_ok,meses[mes],ano),
+        file_name=f"LivroPonto_{meses[mes]}_{ano}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+
+st.info("💡 Abra o PDF ou Excel, imprima e entregue para assinatura da Yolanda.")
+st.markdown("---")
+st.caption("Paróquia SS. Trindade — Maputo, Moçambique")
