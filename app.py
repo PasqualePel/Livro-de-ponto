@@ -17,7 +17,7 @@ SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzK268XUzyLr4TJlksHJf1k8GE
 SHEET_ID = "1KhoFXD3oB91U-gh1zy1-YCK4Kug4XfdlpwttXPU6KAY"
 COLS = ["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Atraso","Desconto (MZN)","Notas"]
 VALOR_HORA = 45.82
-HORA_LIMITE = "08:40"
+HORA_LIMITE = "08:11"
 HORA_MAX_SAIDA = "16:40"
 
 feriados = {
@@ -255,8 +255,7 @@ with c3:
 notas = st.text_input("📝 Notas", value="",
     placeholder="Escreva aqui se necessário...",
     key=f"n_{mes}_{dia}")
-st.caption("ℹ️ Pausa almoço (13h-14h) descontada. Atraso a partir das 08h40.")
-
+st.caption("ℹ️ Pausa almoço (13h-14h) descontada. Atraso a partir das 08h11.")
 if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
     if entrada and saida:
         horas, ok = calc_horas(entrada, saida)
