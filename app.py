@@ -34,9 +34,14 @@ def calc_horas(ent, sai):
     try:
         e = datetime.strptime(ent.strip(), "%H:%M")
         s = datetime.strptime(sai.strip(), "%H:%M")
-        diff = int((s-e).total_seconds()//60)
+        diff = int((s - e).total_seconds() // 60)
         if diff <= 0:
             return "Erro: saída antes da entrada", False
+        # Sottrae 1 ora di pausa pranzo (13:00-14:00)
+        almoco = 60
+        diff = diff - almoco
+        if diff <= 0:
+            return "Erro: tempo insuficiente", False
         return f"{diff//60}h {diff%60:02d}m", True
     except:
         return "Formato inválido (use HH:MM)", False
@@ -50,13 +55,15 @@ def total_min(df):
             try: t += int(p[0])*60+int(p[1].strip())
             except: pass
     return t
-def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
+
+def gerar_pdf(do_mes, mes_nome, ano):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
         rightMargin=2*cm, leftMargin=2*cm,
         topMargin=2*cm, bottomMargin=2*cm)
     styles = getSampleStyleSheet()
     el = []
+
     t1 = ParagraphStyle('t1',parent=styles['Normal'],fontSize=16,
         fontName='Helvetica-Bold',alignment=TA_CENTER,spaceAfter=6)
     t2 = ParagraphStyle('t2',parent=styles['Normal'],fontSize=13,
@@ -67,22 +74,31 @@ def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
         fontName='Helvetica',alignment=TA_LEFT,spaceAfter=2)
     tf = ParagraphStyle('tf',parent=styles['Normal'],fontSize=10,
         fontName='Helvetica',alignment=TA_CENTER,spaceAfter=2)
+
     el.append(Paragraph("Paróquia SS. Trindade", t1))
     el.append(Paragraph("Livro de Ponto — Yolanda Facitela Clávio", t2))
     el.append(Spacer(1, 0.3*cm))
     el.append(Paragraph(f"Mês: {mes_nome} {ano}", ti))
-    el.append(Paragraph(f"Total de Horas: {total_h}h {total_m:02d}m", ti))
     el.append(Spacer(1, 0.5*cm))
     el.append(Table([['']],colWidths=[17*cm],
         style=TableStyle([('LINEBELOW',(0,0),(-1,-1),1,colors.black)])))
     el.append(Spacer(1, 0.5*cm))
-    cab = ["Data","Dia da Semana","Entrada","Saída","Horas","Notas"]
+
+    cab = ["Data","Dia da Semana","Entrada","Saída","Horas Trabalhadas","Notas"]
     dati = [cab]
     for _, row in do_mes.iterrows():
-        dati.append([str(row.get("Data","")),str(row.get("Dia da Semana","")),
-            str(row.get("Entrada","")),str(row.get("Saída","")),
-            str(row.get("Horas Trabalhadas","")),str(row.get("Notas",""))])
-    tab = Table(dati,colWidths=[2.5*cm,3.2*cm,2.2*cm,2.2*cm,2.2*cm,4.7*cm],repeatRows=1)
+        dati.append([
+            str(row.get("Data","")),
+            str(row.get("Dia da Semana","")),
+            str(row.get("Entrada","")),
+            str(row.get("Saída","")),
+            str(row.get("Horas Trabalhadas","")),
+            str(row.get("Notas","")) if str(row.get("Notas","")) != "nan" else ""
+        ])
+
+    tab = Table(dati,
+        colWidths=[2.8*cm,3.2*cm,2.2*cm,2.2*cm,3.0*cm,3.6*cm],
+        repeatRows=1)
     tab.setStyle(TableStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.HexColor("#2c3e50")),
         ('TEXTCOLOR',(0,0),(-1,0),colors.white),
@@ -92,17 +108,21 @@ def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
         ('FONTNAME',(0,1),(-1,-1),'Helvetica'),
         ('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor("#f2f2f2")]),
         ('GRID',(0,0),(-1,-1),0.5,colors.grey),
-        ('BOTTOMPADDING',(0,0),(-1,-1),5),
-        ('TOPPADDING',(0,0),(-1,-1),5),
+        ('BOTTOMPADDING',(0,0),(-1,-1),6),
+        ('TOPPADDING',(0,0),(-1,-1),6),
     ]))
     el.append(tab)
     el.append(Spacer(1, 2*cm))
+
     ass = [
-        [Paragraph("_______________________________",tf),Paragraph("_______________________________",tf)],
-        [Paragraph("<b>Pároco: Pe. Pasquale Peluso</b>",tf),Paragraph("<b>Secretária: Yolanda Facitela Clávio</b>",tf)],
-        [Paragraph("Data: _____ / _____ / _________",tf),Paragraph("Data: _____ / _____ / _________",tf)]
+        [Paragraph("_______________________________",tf),
+         Paragraph("_______________________________",tf)],
+        [Paragraph("<b>Pároco: Pe. Pasquale Peluso</b>",tf),
+         Paragraph("<b>Secretária: Yolanda Facitela Clávio</b>",tf)],
+        [Paragraph("Data: _____ / _____ / _________",tf),
+         Paragraph("Data: _____ / _____ / _________",tf)]
     ]
-    tab_ass = Table(ass,colWidths=[8.5*cm,8.5*cm])
+    tab_ass = Table(ass, colWidths=[8.5*cm,8.5*cm])
     tab_ass.setStyle(TableStyle([
         ('ALIGN',(0,0),(-1,-1),'CENTER'),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
@@ -115,17 +135,22 @@ def gerar_pdf(do_mes, mes_nome, ano, total_h, total_m):
     buffer.seek(0)
     return buffer
 
-def gerar_excel(do_mes, cols_ok, mes_nome, ano, tot):
+def gerar_excel(do_mes, cols_ok, mes_nome, ano):
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        do_mes[cols_ok].to_excel(writer, sheet_name=mes_nome, index=False, startrow=7)
+        # Pulisce le note "nan"
+        do_export = do_mes[cols_ok].copy()
+        if "Notas" in do_export.columns:
+            do_export["Notas"] = do_export["Notas"].apply(
+                lambda x: "" if str(x) == "nan" else str(x)
+            )
+        do_export.to_excel(writer, sheet_name=mes_nome, index=False, startrow=7)
         ws = writer.sheets[mes_nome]
         ws["A1"] = "Paróquia SS. Trindade"
         ws["A2"] = "Livro de Ponto — Yolanda Facitela Clávio"
         ws["A3"] = "Pároco: Pe. Pasquale Peluso"
         ws["A4"] = "Secretária: Yolanda Facitela Clávio"
         ws["A5"] = f"Mês: {mes_nome} {ano}"
-        ws["A6"] = f"Total de Horas: {tot//60}h {tot%60:02d}m"
         ws["A1"].font = Font(bold=True, size=14)
         ws["A2"].font = Font(bold=True, size=12)
         ws["A1"].alignment = Alignment(horizontal="center")
@@ -150,6 +175,8 @@ def guardar_registo(reg):
     except Exception as e:
         st.error(f"Erro: {e}")
         return False
+
+# ── SIDEBAR ──────────────────────────────────────────────────────
 st.sidebar.title("📅 Meses")
 ano = datetime.now().year
 mes = st.sidebar.selectbox("Selecione o mês:",
@@ -170,13 +197,16 @@ if not df0.empty and "Mês" in df0.columns:
     else:
         st.sidebar.info("Nenhum registo este mês")
 
+# ── CABEÇALHO ─────────────────────────────────────────────────────
 st.title("⛪ Paróquia SS. Trindade")
 st.subheader("Livro de Ponto — Yolanda Facitela Clávio")
 st.markdown("**Pároco:** Pe. Pasquale Peluso &nbsp;|&nbsp; **Secretária:** Yolanda Facitela Clávio")
 st.markdown("---")
-st.subheader(f"📝 Novo Registo — {meses[mes]} {ano}")
 
+# ── FORMULÁRIO ────────────────────────────────────────────────────
+st.subheader(f"📝 Novo Registo — {meses[mes]} {ano}")
 c1, c2, c3 = st.columns(3)
+
 with c1:
     dia = st.selectbox("Dia do mês", options=list(range(1,num_dias+1)),
         index=min(datetime.now().day-1,num_dias-1) if mes==datetime.now().month else 0,
@@ -187,20 +217,35 @@ with c1:
     fer = feriados.get(data_obj.strftime("%d-%m"), "")
     if fer:
         st.warning(f"🎉 Feriado: {fer}")
-with c2:
-    entrada = st.text_input("⏰ Hora de Entrada", placeholder="08:00", key=f"ent_{mes}_{dia}")
-with c3:
-    saida = st.text_input("⏰ Hora de Saída", placeholder="16:30", key=f"sai_{mes}_{dia}")
 
-notas = st.text_input("📝 Notas", value=f"Feriado: {fer}" if fer else "", key=f"not_{mes}_{dia}")
+with c2:
+    entrada = st.text_input("⏰ Hora de Entrada", placeholder="08:00",
+                            key=f"ent_{mes}_{dia}")
+
+with c3:
+    saida = st.text_input("⏰ Hora de Saída", placeholder="16:30",
+                          key=f"sai_{mes}_{dia}")
+
+# ── Note VUOTE di default ─────────────────────────────────────────
+notas = st.text_input("📝 Notas", value="", key=f"not_{mes}_{dia}",
+                      placeholder="Escreva aqui se necessário...")
+
+st.caption("ℹ️ A pausa de almoço (13h-14h) é descontada automaticamente.")
 
 if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
     if entrada and saida:
         horas, ok = calc_horas(entrada, saida)
         if ok:
-            reg = {"Data":data_obj.strftime("%d/%m/%Y"),"DiaSemana":dsem,
-                   "Entrada":entrada,"Saida":saida,"Horas":horas,
-                   "Notas":notas,"Mes":mes,"Ano":ano}
+            reg = {
+                "Data": data_obj.strftime("%d/%m/%Y"),
+                "DiaSemana": dsem,
+                "Entrada": entrada,
+                "Saida": saida,
+                "Horas": horas,
+                "Notas": notas,
+                "Mes": mes,
+                "Ano": ano
+            }
             with st.spinner("A guardar..."):
                 if guardar_registo(reg):
                     st.success(f"✅ Guardado! {data_obj.strftime('%d/%m/%Y')} — {horas}")
@@ -209,48 +254,4 @@ if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
         else:
             st.error(horas)
     else:
-        st.warning("⚠️ Por favor, insira a hora de entrada e saída.")
-
-st.markdown("---")
-st.subheader(f"📊 Registos de {meses[mes]} {ano}")
-
-df_all = carregar_dados()
-tem_dados = False
-
-if not df_all.empty and "Mês" in df_all.columns:
-    do_mes = df_all[(df_all["Mês"].astype(str)==str(mes))&(df_all["Ano"].astype(str)==str(ano))].copy()
-    if not do_mes.empty:
-        tem_dados = True
-        do_mes = do_mes.sort_values("Data")
-        cols_ok = [c for c in COLS if c in do_mes.columns]
-        st.dataframe(do_mes[cols_ok], use_container_width=True, hide_index=True)
-        tot = total_min(do_mes)
-        m1, m2 = st.columns(2)
-        m1.metric("⏱️ Total de Horas", f"{tot//60}h {tot%60:02d}m")
-        m2.metric("📅 Dias Trabalhados", len(do_mes))
-        st.markdown("---")
-        st.subheader("📥 Exportar para Assinar")
-        b1, b2 = st.columns(2)
-        with b1:
-            pdf = gerar_pdf(do_mes, meses[mes], ano, tot//60, tot%60)
-            st.download_button(
-                label=f"📄 Baixar PDF — {meses[mes]} {ano}",
-                data=pdf,
-                file_name=f"LivroPonto_{meses[mes]}_{ano}.pdf",
-                mime="application/pdf",
-                use_container_width=True)
-        with b2:
-            excel = gerar_excel(do_mes, cols_ok, meses[mes], ano, tot)
-            st.download_button(
-                label=f"📊 Baixar Excel — {meses[mes]} {ano}",
-                data=excel,
-                file_name=f"LivroPonto_{meses[mes]}_{ano}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True)
-        st.info("💡 Abra o PDF ou Excel, imprima e entregue para assinatura.")
-
-if not tem_dados:
-    st.info(f"📝 Nenhum registo para {meses[mes]} {ano}. Adicione o primeiro registo acima!")
-
-st.markdown("---")
-st.caption("Paróquia SS. Trindade — Maputo, Moçambique")
+        st.warning("⚠️ Por favor,
