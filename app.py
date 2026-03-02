@@ -63,7 +63,7 @@ def calc_atraso(ent):
         atr_str = f"{h}h {m:02d}m" if h > 0 else f"{m} min"
         return atr_str, desc
     except:
-        return "Erro", 0.0
+        return "Sem atraso", 0.0
 
 def tot_min(df):
     t = 0
