@@ -219,4 +219,124 @@ if not df0.empty and "Mês" in df0.columns:
         st.sidebar.info("Nenhum registo este mês")
 st.title("⛪ Paróquia SS. Trindade")
 st.subheader("Livro de Ponto — Yolanda Facitela Clávio")
-st.markdown("**Pároco:** Pe. Pasquale Peluso &nbsp;|&nbsp; **Secretária:** Yolanda Facitela
+st.markdown("**Pároco:** Pe. Pasquale Peluso | **Secretária:** Yolanda Facitela Clávio")
+st.markdown("---")
+
+st.subheader(f"📝 Novo Registo — {meses[mes]} {ano}")
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    dia = st.selectbox("Dia do mês",
+        options=list(range(1, num_dias+1)),
+        index=min(datetime.now().day-1, num_dias-1)
+              if mes==datetime.now().month else 0,
+        key=f"d_{mes}")
+    data_obj = date(ano, mes, dia)
+    dsem = dias_pt[data_obj.weekday()]
+    st.info(f"Data: {data_obj.strftime('%d/%m/%Y')} | {dsem}")
+    fer = feriados.get(data_obj.strftime("%d-%m"), "")
+    if fer:
+        st.warning(f"🎉 {fer}")
+
+with c2:
+    entrada = st.text_input("⏰ Hora de Entrada",
+        placeholder="08:00", key=f"e_{mes}_{dia}")
+    if entrada:
+        atr, desc = calc_atraso(entrada)
+        if desc > 0:
+            st.error(f"Atraso: {atr} | Desconto: {desc:.2f} MZN")
+        else:
+            st.success("Entrada no horário")
+
+with c3:
+    saida = st.text_input("⏰ Hora de Saída",
+        placeholder="16:30", key=f"s_{mes}_{dia}")
+
+notas = st.text_input("📝 Notas", value="",
+    placeholder="Escreva aqui se necessário...",
+    key=f"n_{mes}_{dia}")
+st.caption("ℹ️ Pausa almoço (13h-14h) descontada. Atraso a partir das 08h40.")
+
+if st.button("✅ Guardar Registo", type="primary", use_container_width=True):
+    if entrada and saida:
+        horas, ok = calc_horas(entrada, saida)
+        if ok:
+            atr, desc = calc_atraso(entrada)
+            reg = {
+                "Data": data_obj.strftime("%d/%m/%Y"),
+                "DiaSemana": dsem,
+                "Entrada": entrada,
+                "Saida": saida,
+                "Horas": horas,
+                "Atraso": atr,
+                "Desconto": str(desc),
+                "Notas": notas,
+                "Mes": mes,
+                "Ano": ano
+            }
+            with st.spinner("A guardar..."):
+                if save(reg):
+                    st.success(f"✅ Guardado! {data_obj.strftime('%d/%m/%Y')} — {horas}")
+                    st.balloons()
+                    st.cache_data.clear()
+        else:
+            st.error(horas)
+    else:
+        st.warning("⚠️ Insira a hora de entrada e saída.")
+
+st.markdown("---")
+st.subheader(f"📊 Registos de {meses[mes]} {ano}")
+df_all = load()
+
+if not df_all.empty and "Mês" in df_all.columns:
+    do_mes = df_all[
+        (df_all["Mês"].astype(str)==str(mes)) &
+        (df_all["Ano"].astype(str)==str(ano))
+    ].copy()
+else:
+    do_mes = pd.DataFrame(columns=COLS)
+
+if not do_mes.empty:
+    do_mes = do_mes.sort_values("Data")
+    for col in do_mes.columns:
+        do_mes[col] = do_mes[col].apply(clean)
+    cols_ok = [c for c in COLS if c in do_mes.columns]
+    st.dataframe(do_mes[cols_ok], use_container_width=True, hide_index=True)
+    tot = tot_min(do_mes)
+    td = tot_desc(do_mes)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("⏱️ Total Horas", f"{tot//60}h {tot%60:02d}m")
+    m2.metric("📅 Dias Trabalhados", len(do_mes))
+    m3.metric("💸 Total Desconto", f"{td:.2f} MZN")
+else:
+    do_mes = pd.DataFrame(columns=COLS)
+    tot = 0
+    td = 0.0
+    st.info(f"Nenhum registo para {meses[mes]} {ano}.")
+
+st.markdown("---")
+st.subheader("📥 Exportar para Assinar")
+b1, b2 = st.columns(2)
+
+with b1:
+    st.download_button(
+        label=f"📄 Baixar PDF — {meses[mes]} {ano}",
+        data=make_pdf(do_mes, meses[mes], ano, tot//60, tot%60, td),
+        file_name=f"LivroPonto_{meses[mes]}_{ano}.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
+
+with b2:
+    st.download_button(
+        label=f"📊 Baixar Excel — {meses[mes]} {ano}",
+        data=make_excel(do_mes, meses[mes], ano, tot//60, tot%60, td),
+        file_name=f"LivroPonto_{meses[mes]}_{ano}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+
+st.info("💡 Abra o PDF ou Excel, imprima e entregue para assinatura da Yolanda.")
+st.markdown("---")
+st.caption("Paróquia SS. Trindade — Maputo, Moçambique")
+
